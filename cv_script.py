@@ -31,7 +31,7 @@ key_map = {
 parent_path = './simulator/'
 
 screenshot_list = ['battle', 'solo',
-                   'ai_mode', 'mojiajiguandao', 'hero', 'confirm', 'continue', 'return_to_hall', 'giveup']
+                   'ai_mode', 'mojiajiguandao', 'hero_list', 'mage', 'hero_zhugeliang', 'confirm', 'continue', 'return_to_hall', 'giveup','confirm_2']
 
 threshold = 0.8
 
@@ -52,12 +52,12 @@ def tap_by_keymap(key_name):
 
 
 def tap(x, y):
-    print("tap",x,y)
+    print("tap", x, y)
     os.system("adb.exe shell input tap {} {}".format(x, y))
 
 
 def swipe(x1, y1, x2, y2, time):
-    print('开始滑动',x1,y1,x2,y2)
+    print('开始滑动', x1, y1, x2, y2)
     os.system(
         "adb.exe shell input swipe {} {} {} {} {}".format(x1, y1, x2, y2, time))
 
@@ -67,42 +67,41 @@ def take_screen_shot(filename='screenshot'):  # 对手机进行截图并发送�
         'adb.exe shell /system/bin/screencap -p /sdcard/'+str(filename)+'.png')
 
     os.system(
-        'adb.exe pull /sdcard/'+str(filename)+' "./simulator/screenshot/'+str(filename)+'.png"')
+        'adb.exe pull /sdcard/'+str(filename)+'.png ./simulator/screenshot/'+str(filename)+'.png')
     return './simulator/screenshot/'+str(filename)+'.png'
 
 
-def select_MOJIA_agency():
+def select_MOJIA_agency(target):
     print("开始选择墨家机关道")
-    flag = True
-    unmatch_count = 0
-    while flag:
-        target = take_screen_shot(sys._getframe().f_code.co_name)
-        for filename in screenshot_list:
-            file_ab_path = ""+parent_path+filename+'.png'
-            match, location = match_screenshot(target, file_ab_path)
-            if(match):                
-                tap(location[0], location[1])
-                sleep(2)
-                take_screen_shot(sys._getframe().f_code.co_name) # 点击之后截取下一个画面
-                unmatch_count = 0
-            else:
-                unmatch_count += 1
-                if(unmatch_count >= len(screenshot_list)):
-                    flag = False
+
+    for filename in screenshot_list:
+        file_ab_path = ""+parent_path+filename+'.png'
+        match, location = match_screenshot(target, file_ab_path)
+        if(match):
+            tap(location[0], location[1])
+            sleep(0.5)
+            target = take_screen_shot(
+                sys._getframe().f_code.co_name)  # 点击之后截取下一个画面
 
 
-def move_action():
+def move_action(target):
     print("开始无尽向前")
+
     file_ab_path = ""+parent_path+'tp.png'
-    match, location = match_screenshot(take_screen_shot(sys._getframe().f_code.co_name), file_ab_path)
+    match, location = match_screenshot(target, file_ab_path)
+    file_ab_path2 = ""+parent_path+'tp-dead.png'
+    # match2, location2 = match_screenshot(target, file_ab_path2)
+    # match = match | match2
+
     count = 0
     while(match):
-        
+
         swipe(400, 1300, 800, 700, 5000)
         sleep(0.2)
-        count+=1
-        if(count%5==0):
-            match, location = match_screenshot(take_screen_shot(sys._getframe().f_code.co_name), file_ab_path)
+        count += 1
+        if(count % 5 == 0):
+            target = take_screen_shot(sys._getframe().f_code.co_name)
+            match, location = match_screenshot(target, file_ab_path)
 
 
 def init_adb():
@@ -112,11 +111,13 @@ def init_adb():
     print(os.system('adb.exe devices'))
 
 
+
 def run():
     while (True):
         # todo 应该先截个图 匹配到再tap 再截图
-        select_MOJIA_agency()
-        move_action()
+        target = take_screen_shot(sys._getframe().f_code.co_name)
+        select_MOJIA_agency(target)
+        move_action(target)
 
 
 # take_screen_shot()
