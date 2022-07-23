@@ -1,10 +1,11 @@
+import sys
 import os
 import time
 import datetime
 
 # adb = "adb.exe"
 
-device_ip = '192.168.50.204:39425'
+device_ip = '192.168.50.204:38638'
 
 def init():
     os.system('adb connect '+device_ip)
@@ -22,7 +23,11 @@ def run():
         print(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),'sleep 300',count)
         time.sleep(300)
 
-init()
-run()
+if __name__ == "__main__":
+    
+    if(sys.argv[1]):
+        device_ip = sys.argv[1]
+    init()
+    run()
 
 # os.system('adb version')

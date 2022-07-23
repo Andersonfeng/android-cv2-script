@@ -14,26 +14,31 @@ import threading
 
 threshold = 0.8
 parent_path = './simulator/'
+device_ip = '192.168.50.119:5555'
 sem = threading.Semaphore(5)
 
 def match_screenshot(target_path, template_path, confidence=0.8, limit=10000):
-    with sem:
+    while True:
         target = cv2.imread(target_path,1)
         template = cv2.imread(template_path,1)
-        result = cv2.matchTemplate(target, template, cv2.TM_CCOEFF_NORMED)
-        min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
-        print(sys._getframe().f_code.co_name, template_path, max_val, max_loc)
+        try:
+            result = cv2.matchTemplate(target, template, cv2.TM_CCOEFF_NORMED)
+            min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
+            print(sys._getframe().f_code.co_name, template_path, max_val, max_loc)
+        except:
+            continue
+            
 
-        # location = numpy.where(result >= threshold)
-        theight, twidth = template.shape[:2]
+    # location = numpy.where(result >= threshold)
+    theight, twidth = template.shape[:2]
 
-        # for pt in zip(*location[::-1]):
-        cv2.rectangle(target, max_loc, (max_loc[0] + twidth, max_loc[1] + theight), (0, 255, 255), 2)
+    # for pt in zip(*location[::-1]):
+    # cv2.rectangle(target, max_loc, (max_loc[0] + twidth, max_loc[1] + theight), (0, 255, 255), 2)
 
-        cv2.imshow('result',target)
-        cv2.waitKey(0)
+    # cv2.imshow('result',target)
+    # cv2.waitKey(0)
 
-        # return max_val > threshold, (max_loc[0]+twidth/2, max_loc[1]+theight/2)
+    # return max_val > threshold, (max_loc[0]+twidth/2, max_loc[1]+theight/2)
 
 
 def match_by_pyautogui(template_path, confidence=threshold):
@@ -46,11 +51,13 @@ def match_by_pyautogui(template_path, confidence=threshold):
 
 
 def take_screen_shot(filename='screenshot'):  # 对手机进行截图并发送到电脑指定位置
-    os.system(
-        'adb.exe shell /system/bin/screencap -p /sdcard/'+str(filename)+'.png')
+    while True:
+        os.system(
+            'adb -s '+device_ip+' shell /system/bin/screencap -p /sdcard/'+str(filename)+'.png')
 
-    os.system(
-        'adb.exe pull /sdcard/'+str(filename)+'.png ./simulator/screenshot/'+str(filename)+'.png')
+        os.system(
+            'adb -s '+device_ip+' pull /sdcard/'+str(filename)+'.png ./simulator/screenshot/'+str(filename)+'.png')
+        time.sleep(1)
     return './simulator/screenshot/'+str(filename)+'.png'
 
 
@@ -70,12 +77,28 @@ def multi_action():
         threading.Thread(target=match_screenshot,args=(target_path,""+parent_path+battle+'.png')).start()
             # match_screenshot(target_path,""+parent_path+battle+'.png')
 
+def out_of_mem_test(target_path):
+    '''
+    测试大量调用cv2.matchTemplate 是否会爆出内存异常
+    '''
+    while True:
+        for root,ds,fs in os.walk('D:\\Projects\\Python\\android-simulator-script\\simulator\\screenshot'):        
+            for f in fs:
+                file_ab_path = ""+parent_path+'/screenshot/'+f
+                # match_screenshot(target_path,file_ab_path)
+                threading.Thread(target=match_screenshot,args=(target_path,file_ab_path)).start()
+            time.sleep(0.1)
+            
 
+    return
 
-target_path = './simulator/screenshot/detect_eneny2.png'
-template_path = './simulator/enemy_healthbar.png'
-match_screenshot(target_path, template_path)
+target_path = './simulator/screenshot/screenshot.png'
+template_path = './simulator/confirm.png'
+# out_of_mem_test(template_path)
 # multi_action()
 # match_by_pyautogui(template_path)
 # init_adb()
 # take_screen_shot()
+
+threading.Thread(target=take_screen_shot,args=()).start()
+threading.Thread(target=match_screenshot,args=(target_path, template_path)).start()
