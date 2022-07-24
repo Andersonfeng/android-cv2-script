@@ -2,13 +2,38 @@
 https://github.com/Allong12/py-scrcpy/blob/master/scrcpy_client.py
 
 # upload jar
-adb push "D:\Program Files\scrcpy-win64-v1.19\scrcpy-server" /data/local/tmp/
+adb push "D:\Program Files\scrcpy-win64-v1.24\scrcpy-server" /data/local/tmp/
 
 # run jar
-adb shell CLASSPATH=/data/local/tmp/scrcpy-server app_process / com.genymobile.scrcpy.Server 1.19 info 0 10000 0 -1 true - false true 0 false true - - false
+adb shell CLASSPATH=/data/local/tmp/scrcpy-server app_process / com.genymobile.scrcpy.Server 1.24 'log_level=INFO' 'bit_rate=10000' 'max_size=0' 'max_fps=0' 'lock_video_orientation=-1' 'tunnel_forward=true' 'control=true' 'display_id=0' 'show_touches=false' 'stay_awake=true' 'encoder_name= ' 'power_off_on_close=false' 'clipboard_autosync=false' 
 
 # forward prot
 adb forward tcp:8080 localabstract:scrcpy
+
+
+# control event ref: https://www.codenong.com/j5e743bb4f265da57520/
+1位: 控制类型 type
+1位: action 表示按下/抬起/滑动 事件
+8位: pointerId 不知用处
+12位: Position 其中8位分别每4位表示点击的x,y 坐标 另外4位分别表示屏幕宽高
+2位:presureInt 按压力度
+4位: buttons 不知用处
+
+按下
+[
+2,
+0,
+0,0,0,0,0,0,0,0,
+x >> 24,x << 8 >> 24,x << 16 >> 24,x << 24 >> 24,
+y >> 24,y << 8 >> 24,y << 16 >> 24,y << 24 >> 24,
+1080 >> 8,1080 << 8 >> 8,2280 >> 8,2280 << 8 >> 8,
+0,
+0,
+0,
+0,
+0,
+0
+]
 '''
 
 import socket
@@ -35,7 +60,7 @@ PORT = 8080
 RECVSIZE = 0x10000
 HEADER_SIZE  = 12
 
-SCRCPY_dir = 'D:\\Program Files\\scrcpy-win64-v1.19'
+SCRCPY_dir = 'D:\\Program Files\\scrcpy-win64-v1.24'
 FFMPEG_bin = 'ffmpeg'
 device_ip = '192.168.50.119:5555'
 ADB_bin = os.path.join(SCRCPY_dir,"adb")
@@ -79,31 +104,33 @@ class SCRCPY_client():
         logger.info("START STDIN THREAD")
         
         while self.ACTIVE:
-            if SVR_sendFrameMeta:
-                header = self.sock.recv(HEADER_SIZE)
-                #fd.write(header)
-                pts = int.from_bytes(header[:8],
-                    byteorder='big', signed=False)
-                frm_len = int.from_bytes(header[8:],
-                    byteorder='big', signed=False)
-                
-                
-               
-                data = self.sock.recv(frm_len)
-                #fd.write(data)
-                self.bytes_sent += len(data)
-                self.ffm.stdin.write(data)
-            else:
-                data = self.sock.recv(RECVSIZE)
-                self.bytes_sent += len(data)
-                self.ffm.stdin.write(data)
+            # if SVR_sendFrameMeta:
+            header = self.video_socket.recv(HEADER_SIZE)
+            
+            pts = int.from_bytes(header[:8],
+                byteorder='big', signed=False)
+            frm_len = int.from_bytes(header[8:],
+                byteorder='big', signed=False)      
+        
+            data = self.video_socket.recv(frm_len)
+            
+            logger.info('=====Write stdin start')
+
+            self.bytes_sent += len(data)
+            self.ffm.stdin.write(data) #这里阻塞了 why
+            logger.info("=====Write stdin done")
+            self.ffm.stdin.flush()
+            # else:
+            # data = self.video_socket.recv(RECVSIZE)
+            # self.bytes_sent += len(data)
+            # self.ffm.stdin.write(data)
 
         logger.info("FINISH STDIN THREAD")
 
     def get_next_frame(self, most_recent=False):
         if self.ffoutqueue.empty():
             return None
-        
+        # logger.info('queue size:%s',self.ffoutqueue.qsize())
         if most_recent:
             frames_skipped = -1
             while not self.ffoutqueue.empty():
@@ -119,10 +146,10 @@ class SCRCPY_client():
 
     def connect(self):
         logger.info("Connecting")
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.sock.connect((IP, PORT))
+        self.video_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.video_socket.connect((IP, PORT))
 
-        DUMMYBYTE = self.sock.recv(1)
+        DUMMYBYTE = self.video_socket.recv(1)
         #fd.write(DUMMYBYTE)
         if not len(DUMMYBYTE):
             logger.error("Did not recieve Dummy Byte!")
@@ -131,8 +158,14 @@ class SCRCPY_client():
             logger.info("Connected!")
             logger.info(DUMMYBYTE)
 
+
+        self.control_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.control_socket.connect((IP, PORT))
+
+        self.video_socket.send('hello'.encode("utf-8"))
         # Receive device specs
-        devname = self.sock.recv(64)
+        devname = self.video_socket.recv(64)
+        
         #fd.write(devname)
         self.deviceName = devname.decode("utf-8")
         
@@ -140,7 +173,7 @@ class SCRCPY_client():
             raise ConnectionError("Did not recieve Device Name!")
         logger.info("Device Name: "+self.deviceName)
         
-        res = self.sock.recv(4)
+        res = self.video_socket.recv(4)
         #fd.write(res)
         self.WIDTH, self.HEIGHT = struct.unpack(">HH", res)
         logger.info("WxH: "+str(self.WIDTH)+"x"+str(self.HEIGHT))
@@ -151,12 +184,13 @@ class SCRCPY_client():
         
     def start_processing(self, connect_attempts=200):
         # Set up FFmpeg 
-        ffmpegCmd = [FFMPEG_bin, '-y',
-                     '-r', '20', '-i', 'pipe:0',
-                     '-vcodec', 'rawvideo',
-                     '-pix_fmt', 'rgb24',
-                     '-f', 'image2pipe',
-                     'pipe:1']
+        ffmpegCmd = [FFMPEG_bin, '-y', #-y 直接覆盖输出文件
+                     '-r', '60',  # -r 设置帧率
+                     '-i', 'pipe:0', # -i 采集的数据源
+                     '-vcodec', 'rawvideo', # -vcodec 视频编解码器 -codec:v 的别名
+                     '-pix_fmt', 'rgb24',  # -pix_fmt 像素格式
+                     '-f', 'image2pipe', # -f 强制输入输出文件格式
+                     'pipe:1'] 
         try:
             self.ffm = subprocess.Popen(ffmpegCmd,
                                         stdin=subprocess.PIPE,
@@ -211,7 +245,7 @@ def connect_and_forward_scrcpy():
     try:
         logger.info("Upload JAR...")
         adb_push = subprocess.Popen(
-            [ADB_bin,'push',
+            [ADB_bin,'-s'+device_ip,'push',
             os.path.join(SCRCPY_dir,'scrcpy-server'),
             '/data/local/tmp/'],
             stdout=subprocess.PIPE,
@@ -238,90 +272,39 @@ def connect_and_forward_scrcpy():
         '''
         logger.info("Run JAR")
 
-        # server_version = '1.19'
-        # lof_level = 'info'
-        # max_width=0
-        # bitrate=10000
-        # max_fps=0
-        # lock_screen_orientation=-1
-        # stay_awake=True
-        # encoder_name='-'
-        # control='false'
-
-        server_version='1.19'
-        log_level='info'
-        bitrate=10000
-        max_size=0
-        max_fps=0
-        lock_video_orientation=-1
-        tunel_forward='true'
-        crop='-'
-        control='true'
-        display_id='0'
-        show_touches='false'
-        stay_awake='true'
-        codec_option='-'
-        encoder_name='-'
-        power_off_on_close='false'
-        clipboard_autosync='false'
-        downsize_on_error='false'
-        cleanup='false'
-        power_on='false'
-        '''
-        server_version='1.19'
-        log_level='info'
-        bitrate=10000
-        max_size=0
-        max_fps=0
-        lock_video_orientation=-1
-        tunel_forward='true'
-        crop='-'
-        control='true'
-        display_id='0'
-        show_touches='false'
-        stay_awake='true'
-        codec_option='-'
-        encoder_name='-'
-        power_off_on_close='false'
-        clipboard_autosync='false'
-        downsize_on_error='false'
-        cleanup='false'
-        power_on='false'
-        '''
         subprocess.Popen(
-            [ADB_bin,'shell',
+            [ADB_bin,'-s'+device_ip,'shell',
             'CLASSPATH=/data/local/tmp/scrcpy-server',
             'app_process',
             '/',
             'com.genymobile.scrcpy.Server',
-            server_version,
-            log_level,
-            bitrate,
-            max_size,
-            max_fps,
-            lock_video_orientation,
-            tunel_forward,
-            crop,
-            control,
-            display_id,
-            show_touches,
-            stay_awake,
-            codec_option,
-            encoder_name,
-            power_off_on_close,
-            clipboard_autosync,
-            downsize_on_error,
-            cleanup,
-            power_on
+            '1.24',
+            'log_level=INFO',
+            'bit_rate=800000',
+            'max_size=0',
+            'max_fps=60',
+            'lock_video_orientation=-1',
+            'tunnel_forward=true',
+            'control=true',
+            'display_id=0',
+            'show_touches=false',
+            'stay_awake=true',
+            # 'power_off_on_close=false',
+            # 'encoder_name= ',
+            # 'clipboard_autosync=false',
+            # 'send_frame_meta=true',
+            # 'crop= ',
+            # 'codec_options=-',
+            # 'downsize_on_error=false',
+            # 'cleanup=false',
+            # 'power_on=false'
             ],
             cwd=SCRCPY_dir)
 
         time.sleep(1)
 
-        
-        logger.info("Forward Port")
         subprocess.Popen(
-            [ADB_bin,'forward',
+            [ADB_bin,'-s'+device_ip,'forward',
             'tcp:8080','localabstract:scrcpy'],
             cwd=SCRCPY_dir).wait()
         time.sleep(1)
@@ -332,8 +315,27 @@ def connect_and_forward_scrcpy():
         raise FileNotFoundError("Couldn't find ADB at path ADB_bin: "+
                     str(ADB_bin))
     return True
-    
-    
+
+def show_image():
+    import cv2
+    try:
+        count = 1
+        while True:
+            frm = SCRCPY.get_next_frame(most_recent=False)
+            if isinstance(frm, (np.ndarray, np.generic)):
+                frm = cv2.cvtColor(frm, cv2.COLOR_RGB2BGR)                
+                count += 1
+                count = count % 5
+                # cv2.imwrite('D:\\Projects\\Python\\android-simulator-script\\simulator\\screenshot\\screenshot_'+str(count)+'.png',frm)
+                cv2.imshow("screen", frm)
+                cv2.waitKey(1000//60)  # CAP 60FPS
+                
+    except KeyboardInterrupt:
+        from IPython import embed
+        embed()
+    finally:
+        pass
+
 if __name__ == "__main__":
     logging.basicConfig(stream=sys.stdout, level=logging.INFO)
     
@@ -343,17 +345,24 @@ if __name__ == "__main__":
     SCRCPY.connect()
     SCRCPY.start_processing()
     
-    import cv2
-    try:
-        while True:
-            frm = SCRCPY.get_next_frame(most_recent=False)
-            if isinstance(frm, (np.ndarray, np.generic)):
-                frm = cv2.cvtColor(frm, cv2.COLOR_RGB2BGR)
-                cv2.imshow("image", frm)
-                cv2.waitKey(1000//60)  # CAP 60FPS
-    except KeyboardInterrupt:
-        from IPython import embed
-        embed()
-    finally:
-        pass
+    Thread(target=show_image, args=()).start()
+
+    # import cv2
+    # try:
+    #     count = 0
+    #     while True:
+    #         frm = SCRCPY.get_next_frame(most_recent=False)
+    #         if isinstance(frm, (np.ndarray, np.generic)):
+    #             frm = cv2.cvtColor(frm, cv2.COLOR_RGB2BGR)
+    #             # cv2.VideoCapture(frm)
+    #             # count += 1
+    #             # cv2.imwrite('D:\\Projects\\Python\\android-simulator-script\\simulator\\screenshot\\screenshot_'+str(count)+'.png',frm)
+    #             cv2.imshow("screen", frm)
+    #             cv2.waitKey(1000//60)  # CAP 60FPS
+                
+    # except KeyboardInterrupt:
+    #     from IPython import embed
+    #     embed()
+    # finally:
+    #     pass
         #fd.close()

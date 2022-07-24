@@ -3,15 +3,20 @@ import time
 import cv2
 import numpy
 import sys
-import pyautogui
+import subprocess
+# import pyautogui
 from PIL import ImageGrab, Image
 import threading
+import logging
+
 
 
 # 测试一下confidence , 怎么才能定位到截图 而不是原图裁图
 # 为什么pyautogui 可以用template 匹配到用图片管理器打开的截图 ,而cv2 匹配不到template和截图
+logging.basicConfig(stream=sys.stdout, level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-
+logger.info("test test teset")
 threshold = 0.8
 parent_path = './simulator/'
 device_ip = '192.168.50.119:5555'
@@ -41,13 +46,13 @@ def match_screenshot(target_path, template_path, confidence=0.8, limit=10000):
     # return max_val > threshold, (max_loc[0]+twidth/2, max_loc[1]+theight/2)
 
 
-def match_by_pyautogui(template_path, confidence=threshold):
-    loc = pyautogui.locateOnScreen(template_path, confidence)
-    if(loc):
-        print(loc)
-        # pyautogui.moveTo(loc[0], loc[1], duration=0.5)
-    else:
-        print('pyautogui not match')
+# def match_by_pyautogui(template_path, confidence=threshold):
+#     loc = pyautogui.locateOnScreen(template_path, confidence)
+#     if(loc):
+#         print(loc)
+#         # pyautogui.moveTo(loc[0], loc[1], duration=0.5)
+#     else:
+#         print('pyautogui not match')
 
 
 def take_screen_shot(filename='screenshot'):  # 对手机进行截图并发送到电脑指定位置
@@ -92,6 +97,37 @@ def out_of_mem_test(target_path):
 
     return
 
+def test_subprocess():
+    
+    SCRCPY_dir = 'D:\\Program Files\\scrcpy-win64-v1.24'    
+    device_ip = '192.168.50.119:5555'
+    ADB_bin = os.path.join(SCRCPY_dir,"adb")
+    
+    adb_push = subprocess.Popen(
+            [ADB_bin,'-s'+device_ip,'push',
+            os.path.join(SCRCPY_dir,'scrcpy-server'),
+            '/data/local/tmp/'],            
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            cwd=SCRCPY_dir)
+
+    adb_push.wait()
+    logger.info('out:%s',adb_push.stdout.read())
+    logger.info('err:%s',adb_push.stderr.read())
+
+    logger.info('run 完拉')
+    return
+
+def test_array():
+    arr=[]
+    for i in range(20):
+        arr.append(i)
+    print(arr)
+    print(arr[0:8])
+    print(arr[8:])
+    
+        
+
 target_path = './simulator/screenshot/screenshot.png'
 template_path = './simulator/confirm.png'
 # out_of_mem_test(template_path)
@@ -99,6 +135,8 @@ template_path = './simulator/confirm.png'
 # match_by_pyautogui(template_path)
 # init_adb()
 # take_screen_shot()
-
-threading.Thread(target=take_screen_shot,args=()).start()
-threading.Thread(target=match_screenshot,args=(target_path, template_path)).start()
+# test_subprocess()
+# test_array()
+print(1000//60)
+# threading.Thread(target=take_screen_shot,args=()).start()
+# threading.Thread(target=match_screenshot,args=(target_path, template_path)).start()
